@@ -154,7 +154,7 @@ else
 fi
 
 
-# ----- Create write-only policy -----
+# ----- Create write-only policy JSON -----
 cat <<EOF > s3-write-only-policy.json
 {
   "Version": "2012-10-17",
@@ -186,23 +186,41 @@ cat <<EOF > s3-write-only-policy.json
 }
 EOF
 
-# Create the custom write-only policy
-aws iam create-policy \
-  --policy-name S3WriteOnlyAccess \
-  --policy-document file://s3-write-only-policy.json
+# ----- Create custom write-only policy -----
+POLICY_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:policy/S3WriteOnlyAccess"
 
-echo "✅ Custom policy 'S3WriteOnlyAccess' created"
+if ! aws iam get-policy --policy-arn "$POLICY_ARN" > /dev/null 2>&1; then
+  echo "🔧 Creating custom policy: S3WriteOnlyAccess..."
+  aws iam create-policy \
+    --policy-name S3WriteOnlyAccess \
+    --policy-document file://s3-write-only-policy.json
+  echo "✅ Custom policy 'S3WriteOnlyAccess' created"
+else
+  echo "✅ Policy already exists: S3WriteOnlyAccess"
+fi
 
-# Attach to a role
-aws iam create-role \
-  --role-name S3WriteOnlyRole \
-  --assume-role-policy-document file://trust-policy.json
+# ----- Create IAM role -----
+if ! aws iam get-role --role-name S3WriteOnlyRole > /dev/null 2>&1; then
+  echo "🔧 Creating IAM role: S3WriteOnlyRole..."
+  aws iam create-role \
+    --role-name S3WriteOnlyRole \
+    --assume-role-policy-document file://trust-policy.json
+  echo "✅ IAM role 'S3WriteOnlyRole' created"
+else
+  echo "✅ IAM role already exists: S3WriteOnlyRole"
+fi
 
-aws iam attach-role-policy \
-  --role-name S3WriteOnlyRole \
-  --policy-arn arn:aws:iam::${AWS_ACCOUNT_ID}:policy/S3WriteOnlyAccess
+# ----- Attach policy to role (only if not already attached) -----
+if ! aws iam list-attached-role-policies --role-name S3WriteOnlyRole | grep -q "S3WriteOnlyAccess"; then
+  echo "🔗 Attaching policy to role..."
+  aws iam attach-role-policy \
+    --role-name S3WriteOnlyRole \
+    --policy-arn "$POLICY_ARN"
+  echo "✅ Policy attached to role"
+else
+  echo "✅ Policy already attached to role"
+fi
 
-echo "✅ S3WriteOnlyRole created and policy attached"
 
 # Create the instance profile only if it doesn't exist
 if ! aws iam get-instance-profile --instance-profile-name S3WriteOnlyInstanceProfile > /dev/null 2>&1; then
