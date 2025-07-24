@@ -266,20 +266,28 @@ if [ -z "$BUCKET_NAME" ]; then
   exit 1
 fi
 
-echo "🚀 Creating private S3 bucket: $BUCKET_NAME in region $REGION..."
+echo "🚀 Checking if bucket '$BUCKET_NAME' exists..."
 
-# Create bucket
-aws s3api create-bucket \
-  --bucket "$BUCKET_NAME" \
-  --region "$REGION" \
-  --create-bucket-configuration LocationConstraint="$REGION"
+# Check if bucket exists
+if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
+  echo "✅ Bucket '$BUCKET_NAME' already exists. Skipping creation."
+else
+  echo "🚀 Creating private S3 bucket: $BUCKET_NAME in region $REGION..."
 
-# Make bucket private (by disabling public access)
+  aws s3api create-bucket \
+    --bucket "$BUCKET_NAME" \
+    --region "$REGION" \
+    --create-bucket-configuration LocationConstraint="$REGION"
+    
+  echo "✅ Bucket '$BUCKET_NAME' created."
+fi
+
+# Apply public access block config regardless
 aws s3api put-public-access-block \
   --bucket "$BUCKET_NAME" \
   --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
 
-echo "✅ Bucket '$BUCKET_NAME' created and set to private."
+echo "✅ Bucket '$BUCKET_NAME' is private."
 
 # upload logs to S3
 BUCKET_NAME=${LOG_BUCKET_NAME:-""}
