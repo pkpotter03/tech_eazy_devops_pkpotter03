@@ -196,15 +196,30 @@ aws iam attach-role-policy \
 
 echo "✅ S3WriteOnlyRole created and policy attached"
 
-# Create an instance profile and associate it with the role
-aws iam create-instance-profile --instance-profile-name S3WriteOnlyInstanceProfile
+# Create the instance profile only if it doesn't exist
+if ! aws iam get-instance-profile --instance-profile-name S3WriteOnlyInstanceProfile > /dev/null 2>&1; then
+  echo "🔧 Creating instance profile: S3WriteOnlyInstanceProfile..."
+  aws iam create-instance-profile --instance-profile-name S3WriteOnlyInstanceProfile
+else
+  echo "✅ Instance profile already exists."
+fi
 
-# Associate the role with the instance profile
-aws iam add-role-to-instance-profile \
-  --instance-profile-name S3WriteOnlyInstanceProfile \
-  --role-name S3WriteOnlyRole
+# Add the role to the instance profile (only if not already attached)
+if ! aws iam get-instance-profile --instance-profile-name S3WriteOnlyInstanceProfile | grep -q S3WriteOnlyRole; then
+  echo "🔗 Associating role with instance profile..."
+  aws iam add-role-to-instance-profile \
+    --instance-profile-name S3WriteOnlyInstanceProfile \
+    --role-name S3WriteOnlyRole
+else
+  echo "✅ Role already associated with instance profile."
+fi
 
-# Associate the instance profile with the EC2 instance
+# Wait for IAM propagation
+echo "⏳ Waiting for instance profile to propagate..."
+sleep 10
+
+# Associate the instance profile with EC2 instance
+echo "🔗 Associating instance profile with EC2 instance..."
 aws ec2 associate-iam-instance-profile \
   --instance-id "$INSTANCE_ID" \
   --iam-instance-profile Name=S3WriteOnlyInstanceProfile
