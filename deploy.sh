@@ -9,7 +9,7 @@ if [[ -z "$STAGE" ]]; then
   exit 1
 fi
 
-CONFIG_FILE="./config/${STAGE,,}_config"  # lowercase
+CONFIG_FILE="./${STAGE,,}_config"  # lowercase
 if [[ ! -f "$CONFIG_FILE" ]]; then
   echo "❗ Config file not found: $CONFIG_FILE"
   exit 1
