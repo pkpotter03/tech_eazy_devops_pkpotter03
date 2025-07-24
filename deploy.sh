@@ -78,7 +78,9 @@ sudo shutdown -h +$SHUTDOWN_AFTER_MINUTES
 # ---------- Assignment 2 ----------
 
 # Load env file
+set -a
 source .env
+set +a
 
 # ----- Create trust policy file -----
 cat <<EOF > trust-policy.json
