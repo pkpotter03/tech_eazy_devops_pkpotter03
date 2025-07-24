@@ -44,10 +44,17 @@ mvn -v
 
 
 # ---------- Step 4: Clone and Build Spring App ----------
-echo "📁 Cloning repository..."
-git clone "$REPO_URL"
 REPO_NAME=$(basename "$REPO_URL" .git)
+
+if [ -d "$REPO_NAME/.git" ]; then
+  echo "✅ Repository '$REPO_NAME' already exists. Skipping clone..."
+else
+  echo "📁 Cloning repository..."
+  git clone "$REPO_URL"
+fi
+
 cd "$REPO_NAME"
+
 
 echo "🧱 Building project with Maven..."
 mvn clean package
