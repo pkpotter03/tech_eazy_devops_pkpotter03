@@ -218,11 +218,21 @@ fi
 echo "⏳ Waiting for instance profile to propagate..."
 sleep 10
 
-# Associate the instance profile with EC2 instance
-echo "🔗 Associating instance profile with EC2 instance..."
-aws ec2 associate-iam-instance-profile \
-  --instance-id "$INSTANCE_ID" \
-  --iam-instance-profile Name=S3WriteOnlyInstanceProfile
+# Check if instance profile is already associated with the instance
+EXISTING_PROFILE=$(aws ec2 describe-instances \
+  --instance-ids "$INSTANCE_ID" \
+  --query "Reservations[0].Instances[0].IamInstanceProfile.Arn" \
+  --output text 2>/dev/null)
+
+if [[ "$EXISTING_PROFILE" == *"S3WriteOnlyInstanceProfile"* ]]; then
+  echo "✅ Instance already associated with the profile."
+else
+  echo "🔗 Associating instance profile with EC2 instance..."
+  aws ec2 associate-iam-instance-profile \
+    --instance-id "$INSTANCE_ID" \
+    --iam-instance-profile Name=S3WriteOnlyInstanceProfile
+fi
+
 
 # Check for BUCKET_NAME
 if [ -z "$BUCKET_NAME" ]; then
