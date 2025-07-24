@@ -79,7 +79,7 @@ sudo shutdown -h +$SHUTDOWN_AFTER_MINUTES
 
 # Load env file
 set -a
-source .env
+source source ../.env
 set +a
 
 # ----- Create trust policy file -----
