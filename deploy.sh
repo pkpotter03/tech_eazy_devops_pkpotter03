@@ -136,7 +136,11 @@ EOF
 echo "✅ Trust policy created"
 
 # ----- Create S3ReadOnlyRole -----
-aws iam create-role \
+
+# Check if the role already exists
+if ! aws iam get-role --role-name S3ReadOnlyRole > /dev/null 2>&1; then
+  echo "🔧 Creating role: S3ReadOnlyRole..."
+  aws iam create-role \
   --role-name S3ReadOnlyRole \
   --assume-role-policy-document file://trust-policy.json
 
@@ -145,6 +149,10 @@ aws iam attach-role-policy \
   --policy-arn arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
 
 echo "✅ S3ReadOnlyRole created and policy attached"
+else
+  echo "✅ Role already exists: S3ReadOnlyRole"
+fi
+
 
 # ----- Create write-only policy -----
 cat <<EOF > s3-write-only-policy.json
