@@ -29,7 +29,13 @@ echo "📦 Installing Maven $MAVEN_VERSION..."
 wget https://downloads.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.zip
 unzip apache-maven-${MAVEN_VERSION}-bin.zip
 sudo mv apache-maven-${MAVEN_VERSION} /opt/maven
-sudo ln -s /opt/maven/bin/mvn /usr/bin/mvn
+# Create symlink only if it doesn't already exist
+if ! command -v mvn &> /dev/null; then
+  sudo ln -s /opt/maven/bin/mvn /usr/bin/mvn
+else
+  echo "ℹ️ Maven is already linked to /usr/bin/mvn"
+fi
+echo "✅ Maven installed successfully"
 mvn -v
 
 
