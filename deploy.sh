@@ -260,61 +260,61 @@ else
 fi
 
 
-# Check for BUCKET_NAME
-if [ -z "$BUCKET_NAME" ]; then
-  echo "❌ BUCKET_NAME is not set in .env. Exiting."
+# Check if required env vars are set
+if [[ -z "$LOG_BUCKET_NAME" || -z "$REGION" ]]; then
+  echo "❌ LOG_BUCKET_NAME or REGION is not set in .env. Exiting."
   exit 1
 fi
 
-echo "🚀 Checking if bucket '$BUCKET_NAME' exists..."
+echo "🚀 Checking if bucket '$LOG_BUCKET_NAME' exists..."
 
 # Check if bucket exists
-if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
-  echo "✅ Bucket '$BUCKET_NAME' already exists. Skipping creation."
+if aws s3api head-bucket --bucket "$LOG_BUCKET_NAME" 2>/dev/null; then
+  echo "✅ Bucket '$LOG_BUCKET_NAME' already exists. Skipping creation."
 else
-  echo "🚀 Creating private S3 bucket: $BUCKET_NAME in region $REGION..."
+  echo "🚀 Creating private S3 bucket: $LOG_BUCKET_NAME in region $REGION..."
 
   aws s3api create-bucket \
-    --bucket "$BUCKET_NAME" \
+    --bucket "$LOG_BUCKET_NAME" \
     --region "$REGION" \
     --create-bucket-configuration LocationConstraint="$REGION"
-    
-  echo "✅ Bucket '$BUCKET_NAME' created."
+
+  echo "✅ Bucket '$LOG_BUCKET_NAME' created."
 fi
 
-# Apply public access block config regardless
+# Apply public access block config
 aws s3api put-public-access-block \
-  --bucket "$BUCKET_NAME" \
+  --bucket "$LOG_BUCKET_NAME" \
   --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
 
-echo "✅ Bucket '$BUCKET_NAME' is private."
+echo "✅ Bucket '$LOG_BUCKET_NAME' is private."
 
-# upload logs to S3
-BUCKET_NAME=${LOG_BUCKET_NAME:-""}
+# Prepare log variables
 INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
+APP_LOG_PATH="/home/ubuntu/app.log"  # <-- change if needed
 
-if [[ -z "$BUCKET_NAME" ]]; then
-  echo "❌ S3 bucket name not set. Exiting."
-  exit 1
+echo "📤 Uploading logs to S3 bucket: $LOG_BUCKET_NAME"
+
+# Upload cloud-init log
+if [[ -f "/var/log/cloud-init.log" ]]; then
+  aws s3 cp /var/log/cloud-init.log s3://$LOG_BUCKET_NAME/logs/$INSTANCE_ID-cloud-init-$TIMESTAMP.log
+  echo "✅ cloud-init.log uploaded"
+else
+  echo "⚠️ /var/log/cloud-init.log not found"
 fi
 
-echo "📤 Uploading logs to S3 bucket: $BUCKET_NAME"
-
-# Upload cloud-init system log
-aws s3 cp /var/log/cloud-init.log s3://$BUCKET_NAME/logs/$INSTANCE_ID-cloud-init-$TIMESTAMP.log
-
-# ✅ Upload app logs
-APP_LOG_PATH="/home/ubuntu/app.log"  # <-- update if needed
-
+# Upload app log
 if [[ -f "$APP_LOG_PATH" ]]; then
-  aws s3 cp "$APP_LOG_PATH" s3://$BUCKET_NAME/app/logs/$INSTANCE_ID-app-$TIMESTAMP.log
+  aws s3 cp "$APP_LOG_PATH" s3://$LOG_BUCKET_NAME/app/logs/$INSTANCE_ID-app-$TIMESTAMP.log
+  echo "✅ App log uploaded"
 else
   echo "⚠️ App log not found at $APP_LOG_PATH"
 fi
 
 # Set lifecycle policy to delete logs after 7 days
-echo "🗑 Setting lifecycle policy to delete logs after 7 days"
+echo "🗑 Setting lifecycle policy to delete logs after 7 days..."
+
 aws s3api put-bucket-lifecycle-configuration \
   --bucket "$LOG_BUCKET_NAME" \
   --lifecycle-configuration '{
@@ -342,11 +342,11 @@ aws s3api put-bucket-lifecycle-configuration \
     ]
   }'
 
-echo "✅ Logs uploaded and lifecycle policy set."
+echo "✅ Lifecycle policy set."
 
-# List logs in S3 bucket
+# List uploaded logs
+echo "📂 Listing uploaded logs:"
 aws s3 ls s3://$LOG_BUCKET_NAME/logs/
 aws s3 ls s3://$LOG_BUCKET_NAME/app/logs/
 
-# End of script
-
+echo "✅ Script execution completed."
