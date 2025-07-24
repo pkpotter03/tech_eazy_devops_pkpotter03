@@ -95,6 +95,21 @@ else
   echo "✅ AWS CLI already present."
 fi
 
+# ----- Check if AWS credentials are configured -----
+if ! aws sts get-caller-identity &>/dev/null; then
+  echo "⚠️  AWS credentials not found. Launching 'aws configure'..."
+  aws configure
+
+  # Re-check if credentials were successfully set
+  if ! aws sts get-caller-identity &>/dev/null; then
+    echo "❌ AWS credentials still not configured. Exiting..."
+    exit 1
+  fi
+fi
+
+echo "✅ AWS credentials are configured."
+
+
 # ----- Create trust policy file -----
 cat <<EOF > trust-policy.json
 {
