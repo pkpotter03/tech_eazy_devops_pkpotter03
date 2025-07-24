@@ -30,7 +30,8 @@ sudo apt install -y curl unzip git iptables openjdk-${JAVA_VERSION}-jdk
 echo "📦 Installing Maven $MAVEN_VERSION..."
 wget https://downloads.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.zip
 unzip apache-maven-${MAVEN_VERSION}-bin.zip
-sudo mv apache-maven-${MAVEN_VERSION} /opt/maven
+sudo rm -rf /opt/maven/apache-maven-3.9.11
+sudo mv apache-maven-3.9.11 /opt/maven/
 # Create symlink only if it doesn't already exist
 if ! command -v mvn &> /dev/null; then
   sudo ln -s /opt/maven/bin/mvn /usr/bin/mvn
