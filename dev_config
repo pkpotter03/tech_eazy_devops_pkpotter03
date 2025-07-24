@@ -1,6 +1,6 @@
 # dev_config
 INSTANCE_TYPE="t3.micro"
-JAVA_VERSION="24"
+JAVA_VERSION="21"
 MAVEN_VERSION="3.9.11"
 REPO_URL="https://github.com/Trainings-TechEazy/test-repo-for-devops"
 APP_PORT=80
