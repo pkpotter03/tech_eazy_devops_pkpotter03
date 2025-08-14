@@ -1,0 +1,165 @@
+name: Deploy Spring App (Assignment 3)
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'deploy-*'     # e.g., deploy-dev, deploy-prod
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Stage (Dev/Prod)"
+        required: true
+        default: "Dev"
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform
+    outputs:
+      public_ip: ${{ steps.outputs_step.outputs.public_ip }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine Stage
+        id: stage
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            STAGE="${{ github.event.inputs.stage }}"
+          elif [[ "${{ github.ref_name }}" == deploy-* ]]; then
+            TAG="${{ github.ref_name }}"
+            # expect deploy-dev or deploy-prod, map to Dev/Prod
+            SUFFIX="${TAG#deploy-}"
+            if [ "$SUFFIX" = "dev" ] || [ "$SUFFIX" = "Dev" ]; then STAGE="Dev"; fi
+            if [ "$SUFFIX" = "prod" ] || [ "$SUFFIX" = "Prod" ]; then STAGE="Prod"; fi
+          else
+            STAGE="Dev"
+          fi
+          echo "stage=$STAGE" >> $GITHUB_OUTPUT
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Plan
+        run: |
+          terraform plan \
+            -var="region=${{ env.AWS_REGION }}" \
+            -var="stage=${{ steps.stage.outputs.stage }}" \
+            -var="instance_type=t3.micro" \
+            -var="key_name=${{ secrets.TF_VAR_key_name }}" \
+            -var="log_bucket_name=${{ secrets.TF_VAR_log_bucket_name }}"
+
+      - name: Terraform Apply
+        run: |
+          terraform apply -auto-approve \
+            -var="region=${{ env.AWS_REGION }}" \
+            -var="stage=${{ steps.stage.outputs.stage }}" \
+            -var="instance_type=t3.micro" \
+            -var="key_name=${{ secrets.TF_VAR_key_name }}" \
+            -var="log_bucket_name=${{ secrets.TF_VAR_log_bucket_name }}"
+
+      - name: Collect Outputs
+        id: outputs_step
+        run: |
+          echo "public_ip=$(terraform output -raw public_ip)" >> $GITHUB_OUTPUT
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: provision
+    env:
+      PUBLIC_IP: ${{ needs.provision.outputs.public_ip }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set Stage value
+        id: stage
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            STAGE="${{ github.event.inputs.stage }}"
+          elif [[ "${{ github.ref_name }}" == deploy-* ]]; then
+            TAG="${{ github.ref_name }}"
+            SUFFIX="${TAG#deploy-}"
+            if [ "$SUFFIX" = "dev" ] || [ "$SUFFIX" = "Dev" ]; then STAGE="Dev"; fi
+            if [ "$SUFFIX" = "prod" ] || [ "$SUFFIX" = "Prod" ]; then STAGE="Prod"; fi
+          else
+            STAGE="Dev"
+          fi
+          echo "stage=$STAGE" >> $GITHUB_OUTPUT
+
+      - name: Write SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H $PUBLIC_IP >> ~/.ssh/known_hosts
+
+      - name: Upload deploy artifacts (script, configs, .env)
+        run: |
+          # Prepare stage-specific config filename expected by your script
+          # Your script expects ./${STAGE,,}_config next to it
+          STAGE_LOWER=$(echo "${{ steps.stage.outputs.stage }}" | tr '[:upper:]' '[:lower:]')
+          # Assume you keep stage configs under scripts/ as Dev_config / Prod_config
+          cp scripts/${{ steps.stage.outputs.stage }}_config /tmp/${STAGE_LOWER}_config
+          # .env for Assignment 2 parts (LOG_BUCKET_NAME, REGION, AWS_ACCOUNT_ID, INSTANCE_ID placeholder)
+          cp scripts/.env.example /tmp/.env
+
+          scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no \
+            scripts/deploy.sh ubuntu@$PUBLIC_IP:/home/ubuntu/deploy.sh
+
+          scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no \
+            /tmp/${STAGE_LOWER}_config ubuntu@$PUBLIC_IP:/home/ubuntu/${STAGE_LOWER}_config
+
+          scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no \
+            /tmp/.env ubuntu@$PUBLIC_IP:/home/ubuntu/.env
+
+      - name: Run deploy.sh remotely
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@$PUBLIC_IP \
+            "chmod +x /home/ubuntu/deploy.sh && cd /home/ubuntu && sudo ./deploy.sh ${{ steps.stage.outputs.stage }}"
+
+  health_check:
+    runs-on: ubuntu-latest
+    needs: [provision, deploy]
+    env:
+      PUBLIC_IP: ${{ needs.provision.outputs.public_ip }}
+    steps:
+      - name: Poll /hello endpoint
+        run: |
+          set -e
+          URL="http://$PUBLIC_IP/hello"
+          echo "Polling $URL for up to 2 minutes..."
+          for i in {1..24}; do
+            if curl -s --max-time 5 "$URL" | grep -q "Hello from Spring MVC!"; then
+              echo "✅ App is healthy"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "❌ Health check failed"
+          exit 1
+
+      - name: If failed, fetch remote logs (best-effort)
+        if: failure()
+        run: |
+          mkdir -p logs
+          echo "Attempting to SSH and fetch app.log"
+          set +e
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@$PUBLIC_IP "sudo tail -n 200 /home/ubuntu/app.log" || true
+          echo "You can also check S3 logs in bucket: ${{ secrets.TF_VAR_log_bucket_name }}"
