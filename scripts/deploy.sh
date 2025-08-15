@@ -51,11 +51,8 @@ fi
 # 8️⃣ Upload logs (Terraform already created the bucket)
 INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
-LOG_BUCKET_NAME=$(aws ssm get-parameter --name "/${STAGE,,}/log_bucket_name" --query "Parameter.Value" --output text)
-if [ -z "$LOG_BUCKET_NAME" ]; then
-    echo "❌ Log bucket name not found in SSM. Exiting."
-    exit 1
-fi
+LOG_BUCKET_NAME="my-private-devops-bucket-logs"
+
 aws s3 cp /var/log/cloud-init.log s3://$LOG_BUCKET_NAME/logs/$INSTANCE_ID-cloud-init-$TIMESTAMP.log
 aws s3 cp app.log s3://$LOG_BUCKET_NAME/app/logs/$INSTANCE_ID-app-$TIMESTAMP.log
 echo "✅ Logs uploaded to S3 bucket: $LOG_BUCKET_NAME"
