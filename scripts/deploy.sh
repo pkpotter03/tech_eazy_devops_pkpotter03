@@ -85,9 +85,9 @@ sudo shutdown -h +$SHUTDOWN_AFTER_MINUTES
 # ---------- Assignment 2 ----------
 
 # Load env file
-set -a
+set -o allexport
 source ../.env
-set +a
+set +o allexport
 
 # Ensure AWS CLI is installed and in PATH
 export PATH=$PATH:/usr/local/bin
