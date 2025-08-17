@@ -1,193 +1,114 @@
-# 📦 EC2 Spring Boot Deployment & S3 Integration
+# DevOps Assignment 3 - Automated Spring App Deployment
 
-This project automates the deployment of a Spring Boot application on an AWS EC2 instance, installs necessary dependencies, and integrates with AWS IAM and S3 using AWS CLI.
-
----
-
-## 🔧 Prerequisites
-
-* AWS Account with programmatic access
-* AWS CLI installed and configured (`aws configure`)
-* `.env` file with required secrets
-* A `Dev_config` or similar stage config file
-* A GitHub repo with a Spring Boot project and a working `/hello` endpoint
-* EC2 instance (Ubuntu) already launched and accessible
+This repository demonstrates **infrastructure provisioning and automated deployment** of a Spring Boot application using **Terraform** and **GitHub Actions**. It implements EC2 instance provisioning, IAM roles, S3 bucket logging, deployment scripts, and health checks.
 
 ---
 
-## 📁 Project Structure
+## 📁 Folder Structure
 
 ```
 .
-├── deploy.sh              # Main deployment script
-├── dev_config             # Stage-specific configuration
-├── .env                   # Environment variables (AWS, app config)
-├── trust-policy.json      # IAM trust policy (auto-generated)
-├── s3-write-only-policy.json # S3 write-only custom policy (auto-generated)
+├── infra/
+├── terraform/
+│   ├── main.tf # Terraform resources (EC2, IAM, S3, Security Group)
+│   ├── variables.tf # Terraform input variables
+│   ├── outputs.tf # Terraform outputs
+│   └── provider.tf # AWS provider config
+├── .github/
+│   └── workflows/
+│       └── deploy.yml # GitHub Actions workflow: provision, deploy, health check
+└── scripts/
+    ├── deploy.sh # Deployment script for EC2
+    ├── Dev_config # Stage-specific config (Dev)
+    └── .env.example # Example environment variables
 ```
-
----
-
-## ⚙️ Environment Setup
-
-### .env file
-
-Define the following keys in your `.env` file:
-
-```dotenv
-AWS_ACCOUNT_ID=your_aws_account_id
-REGION=ap-south-1
-LOG_BUCKET_NAME=your-log-bucket
-INSTANCE_ID=i-xxxxxxxxxxxxxxxxx
-```
-
-### dev\_config file
-
-```bash
-REPO_URL=https://github.com/your-user/your-spring-app.git
-JAVA_VERSION=21
-MAVEN_VERSION=3.9.1
-APP_PORT=80
-SHUTDOWN_AFTER_MINUTES=60
-```
----
-
-## ✅ Script Features
-
-### Spring Boot App Deployment
-
-* Installs dependencies (Java, Maven, Git)
-* Clones project from GitHub
-* Builds with Maven
-* Starts app in background
-* Verifies endpoint `http://<EC2_PUBLIC_IP>/hello`
-
-### AWS IAM & S3 Setup
-
-* Creates:
-
-  * `S3ReadOnlyRole`
-  * `S3WriteOnlyAccess` policy
-  * `S3WriteOnlyRole`
-  * `S3WriteOnlyInstanceProfile`
-* Attaches roles and policies
-* Associates instance profile with EC2 instance
-
-### Logging
-
-* Uploads `cloud-init.log` and `app.log` to S3
-* Sets S3 lifecycle rule to delete logs after 7 days
-
----
-
-## 👤 How to Add IAM User Permissions
-
-To allow an IAM user to manage EC2, S3, and IAM resources, follow these steps:
-
-### Step 1: Create IAM User
-
-* Go to IAM Console → Users → Add User
-* Choose a username
-* Select **Programmatic access** (for CLI)
-
-### Step 2: Attach Permissions Policies
-
-Choose one of the following:
-
-#### Option A: Administrator Access (for full control)
-
-* Attach policy: `AdministratorAccess`
-
-#### Option B: Limited Access (Recommended)
-
-Attach these policies:
-
-* `AmazonEC2FullAccess`
-* `AmazonS3FullAccess`
-* `IAMFullAccess`
-* `CloudWatchLogsFullAccess`
-
-> You can also create a custom IAM policy that grants limited access only to specific actions or resources.
-
-### Step 3: Save Access Keys
-
-* After creation, download the `.csv` file with **Access Key ID** and **Secret Access Key**
-* Store them securely, and use them in `.env`
-
----
-
-## 🚀 Deployment Instructions
-
-### 1. Make script executable
-
-```bash
-chmod +x deploy.sh
-```
-
-### 2. Run the script with a stage
-
-```bash
-./deploy.sh Dev
-```
-
-This will:
-
-* Load stage config (e.g., `dev_config`)
-* Install Java and Maven
-* Clone and build the Spring Boot app
-* Run the app on EC2 on port defined in config
-* Create/verify IAM roles and policies
-* Upload logs to private S3 bucket
-* Schedule EC2 auto-shutdown
 
 
 ---
 
-## 🧪 Sample Output
+## 🔹 Overview
 
-```
-✅ Loaded config for stage: Dev
-✅ Maven installed successfully
-✅ App is running correctly!
-✅ AWS credentials are configured.
-✅ Bucket 'my-bucket' is private.
-✅ App log uploaded
-✅ Lifecycle policy set.
-✅ Script execution completed.
-```
+1. **Terraform Infrastructure**
+   - **EC2 Instance** with secure IAM instance profile.
+   - **Security Group** allowing SSH (22) and HTTP (80).
+   - **S3 Bucket** for log storage (private, lifecycle rules for auto-delete after 7 days).
+   - **IAM Roles**:
+     - Write-only role attached to EC2 for uploading logs.
+     - Optional S3 Read-only role.
+   
+2. **GitHub Actions Workflow**
+   - Triggered on:
+     - Push to `main`.
+     - Tag like `deploy-dev` or `deploy-prod`.
+     - Manual workflow dispatch.
+   - Jobs:
+     1. **Provision:** Launch EC2 using Terraform.
+     2. **Deploy:** SSH into EC2, run `deploy.sh`, upload config and `.env`.
+     3. **Health Check:** Poll `/hello` endpoint; fetch logs on failure.
+   
+3. **Deployment Script (`deploy.sh`)**
+   - Installs dependencies: Java, Maven, AWS CLI.
+   - Clones the Spring Boot repository and builds the app.
+   - Runs the app in the background.
+   - Uploads `app.log` and `cloud-init.log` to S3.
+   - Automatically shuts down the EC2 instance after configured minutes.
+
+---
+
+## ⚙️ Prerequisites
+
+- AWS account with access keys configured in GitHub Secrets:
+  - `AWS_ACCESS_KEY_ID`
+  - `AWS_SECRET_ACCESS_KEY`
+  - `AWS_REGION`
+- SSH private key in GitHub Secrets: `SSH_PRIVATE_KEY`
+- Terraform installed locally (for testing) or via GitHub Actions.
+- GitHub repo contains your Spring Boot application URL in `.env` or config.
+
+---
+
+## 🚀 Usage
+
+### 1️⃣ Configure Secrets
+
+In your GitHub repository, add the following secrets:
+
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `AWS_REGION`
+- `SSH_PRIVATE_KEY`
+- `TF_VAR_key_name` (EC2 Key Pair name)
+- `TF_VAR_log_bucket_name` (S3 bucket for logs)
+
+### 2️⃣ Trigger Deployment
+
+- **Push to main branch** → deploys Dev by default.
+- **Push a tag** like `deploy-dev` or `deploy-prod` → deploys corresponding stage.
+- **Manual trigger** via GitHub Actions → select `stage` (Dev/Prod).
+
+### 3️⃣ Workflow Steps
+
+1. Terraform provisions EC2, IAM roles, S3 bucket.
+2. GitHub Action uploads `deploy.sh`, stage config, `.env`.
+3. `deploy.sh` installs dependencies, builds app, runs it, uploads logs to S3.
+4. Health check ensures app is reachable on port 80.
+5. Instance automatically shuts down after defined minutes.
 
 ---
 
 ## 📌 Notes
 
-* To stop the app early, run:
-
-```bash
-sudo shutdown now
-```
-
-* If any IAM resource already exists, script skips creation.
-* Logs are stored in:
-
-  * `s3://<bucket-name>/logs/`
-  * `s3://<bucket-name>/app/logs/`
-
+- Stage configs (`Dev_config`, `Prod_config`) define:
+  - `JAVA_VERSION`
+  - `MAVEN_VERSION`
+  - `REPO_URL`
+  - `APP_PORT`
+  - `SHUTDOWN_AFTER_MINUTES`
+- Logs are uploaded to S3 bucket with separate folders:
+  - `/logs/` for cloud-init logs
+  - `/app/logs/` for application logs
+- Security best practices:
+  - Restrict SSH access to specific IPs in production.
+  - Never expose private keys publicly.
+  
 ---
-
-## 🧹 Cleanup
-
-To remove IAM roles, policies, and instance profile:
-
-```bash
-aws iam remove-role-from-instance-profile --instance-profile-name S3WriteOnlyInstanceProfile --role-name S3WriteOnlyRole
-aws iam delete-instance-profile --instance-profile-name S3WriteOnlyInstanceProfile
-aws iam detach-role-policy --role-name S3WriteOnlyRole --policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/S3WriteOnlyAccess
-aws iam delete-role --role-name S3WriteOnlyRole
-aws iam delete-policy --policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/S3WriteOnlyAccess
-```
-
----
-
-## 📬 Contact
-
-For issues or contributions, raise a PR or contact the project maintainer.
