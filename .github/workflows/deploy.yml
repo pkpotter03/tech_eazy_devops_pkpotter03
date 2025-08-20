@@ -2,7 +2,7 @@ name: Multi-Stage Deployment (Assignment 4)
 
 on:
   push:
-    branches: [ main, assignment-4 ]
+    branches: [ main ]
     tags:
       - 'deploy-*'     # e.g., deploy-dev, deploy-qa, deploy-prod
   workflow_dispatch:
@@ -69,7 +69,7 @@ jobs:
           STAGE_LOWER=$(echo "${{ steps.stage.outputs.stage }}" | tr '[:upper:]' '[:lower:]')
           
           # Get stage-specific config values
-          source ../../scripts/${STAGE_LOWER}_config
+          source ../../scripts/${STAGE}_config
           
           terraform plan \
             -var="region=${{ env.AWS_REGION }}" \
@@ -86,7 +86,7 @@ jobs:
           STAGE_LOWER=$(echo "${{ steps.stage.outputs.stage }}" | tr '[:upper:]' '[:lower:]')
           
           # Get stage-specific config values
-          source ../../scripts/${STAGE_LOWER}_config
+          source ../../scripts/${STAGE}_config
           
           terraform apply -auto-approve \
             -var="region=${{ env.AWS_REGION }}" \
@@ -141,8 +141,8 @@ jobs:
           STAGE_LOWER=$(echo "${{ steps.stage.outputs.stage }}" | tr '[:upper:]' '[:lower:]')
           
           # Copy stage-specific configs
-          cp scripts/${{ steps.stage.outputs.stage }}_config /tmp/${STAGE_LOWER}_config
-          cp scripts/${STAGE_LOWER}.json /tmp/app-config.json
+          cp scripts/${{ steps.stage.outputs.stage }}_config /tmp/${STAGE}_config
+          cp scripts/${STAGE}.json /tmp/app-config.json
           
           # Copy .env template for Assignment 2 parts
           cp scripts/env.template /tmp/.env
@@ -151,7 +151,7 @@ jobs:
             scripts/deploy.sh ubuntu@$PUBLIC_IP:/home/ubuntu/deploy.sh
 
           scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no \
-            /tmp/${STAGE_LOWER}_config ubuntu@$PUBLIC_IP:/home/ubuntu/${STAGE_LOWER}_config
+            /tmp/${STAGE}_config ubuntu@$PUBLIC_IP:/home/ubuntu/${STAGE}_config
 
           scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no \
             /tmp/app-config.json ubuntu@$PUBLIC_IP:/home/ubuntu/app-config.json
@@ -179,7 +179,7 @@ jobs:
           STAGE_LOWER=$(echo "$STAGE" | tr '[:upper:]' '[:lower:]')
           
           # Get app port from stage config
-          source scripts/${STAGE_LOWER}_config
+          source scripts/${STAGE}_config
           
           URL="http://$PUBLIC_IP:$APP_PORT/hello"
           echo "Polling $URL for stage $STAGE (port $APP_PORT) for up to 3 minutes..."

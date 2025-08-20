@@ -12,7 +12,7 @@ if [[ -z "$STAGE" ]]; then
 fi
 
 STAGE_LOWER=$(echo "$STAGE" | tr '[:upper:]' '[:lower:]')
-CONFIG_FILE="./${STAGE_LOWER}_config"
+CONFIG_FILE="./${STAGE}_config"
 APP_CONFIG_FILE="./app-config.json"
 
 if [[ ! -f "$CONFIG_FILE" ]]; then

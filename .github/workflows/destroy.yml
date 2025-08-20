@@ -54,7 +54,7 @@ jobs:
           echo "🗑️ Destroying resources for stage: $STAGE ($STAGE_LOWER)"
           
           # Get stage-specific config values
-          source ../../scripts/${STAGE_LOWER}_config
+          source ../../scripts/${STAGE}_config
           
           # Destroy with stage-specific variables
           terraform destroy -auto-approve \
@@ -71,11 +71,19 @@ jobs:
       - name: Destroy All Stages
         if: ${{ inputs.destroy_all }}
         run: |
-          echo "🗑️ Destroying ALL stages (dev, qa, prod)"
+          echo "🗑️ Destroying ALL stages (Dev, QA, Prod)"
           
-          # Destroy each stage sequentially
-          for STAGE in "dev" "qa" "prod"; do
-            echo "🔄 Destroying stage: $STAGE"
+          # Destroy each stage sequentially with proper capitalization
+          for STAGE_LOWER in "dev" "qa" "prod"; do
+            # Convert to proper case for config file names
+            case $STAGE_LOWER in
+              "dev") STAGE="Dev" ;;
+              "qa") STAGE="QA" ;;
+              "prod") STAGE="Prod" ;;
+              *) echo "⚠️ Unknown stage: $STAGE_LOWER, skipping..."; continue ;;
+            esac
+            
+            echo "🔄 Destroying stage: $STAGE ($STAGE_LOWER)"
             
             # Check if stage config exists
             if [[ -f "../../scripts/${STAGE}_config" ]]; then
@@ -85,7 +93,7 @@ jobs:
               # Destroy with stage-specific variables
               terraform destroy -auto-approve \
                 -var="region=${{ env.AWS_REGION }}" \
-                -var="stage=$STAGE" \
+                -var="stage=$STAGE_LOWER" \
                 -var="instance_type=$INSTANCE_TYPE" \
                 -var="key_name=${{ secrets.TF_VAR_key_name }}" \
                 -var="log_bucket_name=${{ secrets.TF_VAR_log_bucket_name }}" \
@@ -113,7 +121,7 @@ jobs:
           echo "Cleaning up IAM roles and policies for stage: $STAGE_LOWER"
           
           # List and delete IAM roles
-          aws iam list-roles --query "Roles[?contains(RoleName, 'assignment3-$STAGE_LOWER') || contains(RoleName, 'S3WriteOnly') || contains(RoleName, 'S3ReadOnly')].RoleName" --output text | tr '\t' '\n' | while read role; do
+          aws iam list-roles --query "Roles[?contains(RoleName, 'assignment4-$STAGE_LOWER') || contains(RoleName, 'S3WriteOnly-$STAGE') || contains(RoleName, 'S3ReadOnly-$STAGE')].RoleName" --output text | tr '\t' '\n' | while read role; do
             if [[ -n "$role" ]]; then
               echo "Deleting IAM role: $role"
               # Detach policies first
@@ -129,7 +137,7 @@ jobs:
           done
           
           # List and delete IAM policies
-          aws iam list-policies --query "Policies[?contains(PolicyName, 'S3WriteOnly')].PolicyArn" --output text | tr '\t' '\n' | while read policy; do
+          aws iam list-policies --query "Policies[?contains(PolicyName, 'S3WriteOnly-$STAGE')].PolicyArn" --output text | tr '\t' '\n' | while read policy; do
             if [[ -n "$policy" ]]; then
               echo "Deleting IAM policy: $policy"
               aws iam delete-policy --policy-arn "$policy" || true
@@ -137,7 +145,7 @@ jobs:
           done
           
           # List and delete instance profiles
-          aws iam list-instance-profiles --query "InstanceProfiles[?contains(InstanceProfileName, 'S3WriteOnly')].InstanceProfileName" --output text | tr '\t' '\n' | while read profile; do
+          aws iam list-instance-profiles --query "InstanceProfiles[?contains(InstanceProfileName, 'S3WriteOnly-$STAGE')].InstanceProfileName" --output text | tr '\t' '\n' | while read profile; do
             if [[ -n "$profile" ]]; then
               echo "Deleting instance profile: $profile"
               aws iam delete-instance-profile --instance-profile-name "$profile" || true
@@ -152,10 +160,10 @@ jobs:
           
           # Check if any resources remain
           echo "Checking for remaining EC2 instances..."
-          aws ec2 describe-instances --filters "Name=tag:Project,Values=DevOps-Assignment-3" --query "Reservations[].Instances[?State.Name!='terminated'].[InstanceId,Tags[?Key=='Name'].Value|[0],State.Name]" --output table || echo "No EC2 instances found"
+          aws ec2 describe-instances --filters "Name=tag:Project,Values=DevOps-Assignment-4" --query "Reservations[].Instances[?State.Name!='terminated'].[InstanceId,Tags[?Key=='Name'].Value|[0],State.Name]" --output table || echo "No EC2 instances found"
           
           echo "Checking for remaining security groups..."
-          aws ec2 describe-security-groups --filters "Name=group-name,Values=assignment3-*-sg" --query "SecurityGroups[].GroupName" --output table || echo "No security groups found"
+          aws ec2 describe-security-groups --filters "Name=group-name,Values=assignment4-*-sg" --query "SecurityGroups[].GroupName" --output table || echo "No security groups found"
           
           echo "Checking for remaining S3 buckets..."
           aws s3 ls | grep "${{ secrets.TF_VAR_log_bucket_name }}" || echo "S3 bucket not found"

@@ -1,6 +1,13 @@
 locals {
   name  = "assignment4-${lower(var.stage)}"
-  tags  = merge(var.tags, { Stage = var.stage, Project = "DevOps-Assignment-3" })
+  tags  = merge(var.tags, { 
+    Stage = var.stage, 
+    Project = "DevOps-Assignment-4",
+    Environment = var.stage,
+    ManagedBy = "Terraform",
+    Owner = "DevOps Team",
+    CostCenter = "assignment4"
+  })
 }
 
 # ----- AMI (Ubuntu 22.04 LTS) -----
@@ -17,7 +24,7 @@ data "aws_ami" "ubuntu_jammy" {
 # ----- Security Group -----
 resource "aws_security_group" "app_sg" {
   name        = "${local.name}-sg"
-  description = "Allow SSH and HTTP"
+  description = "Security group for ${var.stage} stage - Allow SSH and HTTP on port ${var.app_port}"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
@@ -29,7 +36,7 @@ resource "aws_security_group" "app_sg" {
   }
 
   ingress {
-    description = "HTTP"
+    description = "HTTP on port ${var.app_port}"
     from_port   = var.app_port
     to_port     = var.app_port
     protocol    = "tcp"
@@ -44,6 +51,11 @@ resource "aws_security_group" "app_sg" {
   }
 
   tags = local.tags
+
+  # Add lifecycle policy to prevent accidental deletion
+  lifecycle {
+    prevent_destroy = var.stage == "prod" ? true : false
+  }
 }
 
 data "aws_vpc" "default" {
@@ -95,8 +107,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "logs" {
 data "aws_caller_identity" "current" {}
 
 resource "aws_iam_policy" "s3_write_only" {
-  name        = "S3WriteOnlyAccess"
-  description = "Allow PutObject and CreateBucket; deny reads"
+  name        = "S3WriteOnlyAccess-${var.stage}"
+  description = "Allow PutObject and CreateBucket; deny reads for ${var.stage} stage"
   policy = jsonencode({
     Version = "2012-10-17",
     Statement = [
@@ -125,11 +137,12 @@ resource "aws_iam_policy" "s3_write_only" {
       }
     ]
   })
+  tags = local.tags
 }
 
 # Optional: S3 ReadOnly role (re-creating parity with your A2)
 resource "aws_iam_role" "s3_read_only_role" {
-  name               = "S3ReadOnlyRole"
+  name               = "S3ReadOnlyRole-${var.stage}"
   assume_role_policy = data.aws_iam_policy_document.ec2_trust.json
   tags               = local.tags
 }
@@ -141,7 +154,7 @@ resource "aws_iam_role_policy_attachment" "read_only_attach" {
 
 # Write-only role (used by EC2)
 resource "aws_iam_role" "s3_write_only_role" {
-  name               = "S3WriteOnlyRole"
+  name               = "S3WriteOnlyRole-${var.stage}"
   assume_role_policy = data.aws_iam_policy_document.ec2_trust.json
   tags               = local.tags
 }
@@ -163,8 +176,9 @@ data "aws_iam_policy_document" "ec2_trust" {
 }
 
 resource "aws_iam_instance_profile" "write_only_profile" {
-  name = "S3WriteOnlyInstanceProfile"
+  name = "S3WriteOnlyInstanceProfile-${var.stage}"
   role = aws_iam_role.s3_write_only_role.name
+  tags = local.tags
 }
 
 # ----- EC2 instance (secure profile attached here) -----
@@ -189,6 +203,11 @@ resource "aws_instance" "app" {
               # Set stage environment variable
               echo "STAGE=${var.stage}" >> /etc/environment
               echo "APP_PORT=${var.app_port}" >> /etc/environment
+              echo "ENVIRONMENT=${var.stage}" >> /etc/environment
+              
+              # Install basic tools
+              apt-get update -y
+              apt-get install -y curl wget unzip
               
               echo "Cloud-init completed for stage: ${var.stage} at $(date)" | tee -a /var/log/cloud-init-${var.stage}.log
               EOF
@@ -196,4 +215,11 @@ resource "aws_instance" "app" {
   tags = merge(local.tags, {
     Name = "${local.name}-ec2"
   })
+
+  # Add lifecycle policy to prevent accidental deletion in production
+  lifecycle {
+    prevent_destroy = var.stage == "prod" ? true : false
+  }
 }
+
+
