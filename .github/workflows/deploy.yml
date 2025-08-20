@@ -66,7 +66,8 @@ jobs:
       - name: Terraform Plan
         run: |
           # Determine stage-specific values
-          STAGE_LOWER=$(echo "${{ steps.stage.outputs.stage }}" | tr '[:upper:]' '[:lower:]')
+          STAGE="${{ steps.stage.outputs.stage }}"
+          STAGE_LOWER=$(echo "$STAGE" | tr '[:upper:]' '[:lower:]')
           
           # Get stage-specific config values
           source ../../scripts/${STAGE}_config
@@ -83,7 +84,8 @@ jobs:
       - name: Terraform Apply
         run: |
           # Determine stage-specific values
-          STAGE_LOWER=$(echo "${{ steps.stage.outputs.stage }}" | tr '[:upper:]' '[:lower:]')
+          STAGE="${{ steps.stage.outputs.stage }}"
+          STAGE_LOWER=$(echo "$STAGE" | tr '[:upper:]' '[:lower:]')
           
           # Get stage-specific config values
           source ../../scripts/${STAGE}_config
@@ -138,11 +140,12 @@ jobs:
       - name: Upload deploy artifacts (script, configs, .env)
         run: |
           # Prepare stage-specific config filename expected by your script
-          STAGE_LOWER=$(echo "${{ steps.stage.outputs.stage }}" | tr '[:upper:]' '[:lower:]')
+          STAGE="${{ steps.stage.outputs.stage }}"
+          STAGE_LOWER=$(echo "$STAGE" | tr '[:upper:]' '[:lower:]')
           
           # Copy stage-specific configs
-          cp scripts/${{ steps.stage.outputs.stage }}_config /tmp/${STAGE}_config
-          cp scripts/${STAGE}.json /tmp/app-config.json
+          cp scripts/${STAGE}_config /tmp/${STAGE}_config
+          cp scripts/${STAGE_LOWER}.json /tmp/app-config.json
           
           # Copy .env template for Assignment 2 parts
           cp scripts/env.template /tmp/.env
