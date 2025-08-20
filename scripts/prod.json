@@ -1,0 +1,31 @@
+{
+  "application": {
+    "name": "spring-boot-app",
+    "version": "1.0.0",
+    "stage": "prod"
+  },
+  "server": {
+    "port": 8080,
+    "context-path": "/"
+  },
+  "logging": {
+    "level": "WARN",
+    "file": "logs/app.log",
+    "max-size": "100MB",
+    "max-files": "20"
+  },
+  "database": {
+    "url": "jdbc:postgresql://prod-db:5432/proddb",
+    "username": "prod_user",
+    "password": "prod_secure_password"
+  },
+  "features": {
+    "debug": false,
+    "metrics": true,
+    "health-check": true
+  },
+  "security": {
+    "ssl": true,
+    "cors": false
+  }
+} 

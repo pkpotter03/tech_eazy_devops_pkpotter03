@@ -1,16 +1,21 @@
-name: Deploy Spring App (Assignment 3)
+name: Multi-Stage Deployment (Assignment 4)
 
 on:
   push:
     branches: [ main ]
     tags:
-      - 'deploy-*'     # e.g., deploy-dev, deploy-prod
+      - 'deploy-*'     # e.g., deploy-dev, deploy-qa, deploy-prod
   workflow_dispatch:
     inputs:
       stage:
-        description: "Stage (Dev/Prod)"
+        description: "Stage (Dev/QA/Prod)"
         required: true
         default: "Dev"
+        type: choice
+        options:
+          - Dev
+          - QA
+          - Prod
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -23,6 +28,7 @@ jobs:
         working-directory: infra/terraform
     outputs:
       public_ip: ${{ steps.outputs_step.outputs.public_ip }}
+      stage: ${{ steps.stage.outputs.stage }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,9 +40,10 @@ jobs:
             STAGE="${{ github.event.inputs.stage }}"
           elif [[ "${{ github.ref_name }}" == deploy-* ]]; then
             TAG="${{ github.ref_name }}"
-            # expect deploy-dev or deploy-prod, map to Dev/Prod
+            # expect deploy-dev, deploy-qa, or deploy-prod
             SUFFIX="${TAG#deploy-}"
             if [ "$SUFFIX" = "dev" ] || [ "$SUFFIX" = "Dev" ]; then STAGE="Dev"; fi
+            if [ "$SUFFIX" = "qa" ] || [ "$SUFFIX" = "QA" ]; then STAGE="QA"; fi
             if [ "$SUFFIX" = "prod" ] || [ "$SUFFIX" = "Prod" ]; then STAGE="Prod"; fi
           else
             STAGE="Dev"
@@ -58,21 +65,37 @@ jobs:
 
       - name: Terraform Plan
         run: |
+          # Determine stage-specific values
+          STAGE_LOWER=$(echo "${{ steps.stage.outputs.stage }}" | tr '[:upper:]' '[:lower:]')
+          
+          # Get stage-specific config values
+          source ../../scripts/${STAGE_LOWER}_config
+          
           terraform plan \
             -var="region=${{ env.AWS_REGION }}" \
-            -var="stage=${{ steps.stage.outputs.stage }}" \
-            -var="instance_type=t3.micro" \
+            -var="stage=$STAGE_LOWER" \
+            -var="instance_type=$INSTANCE_TYPE" \
             -var="key_name=${{ secrets.TF_VAR_key_name }}" \
-            -var="log_bucket_name=${{ secrets.TF_VAR_log_bucket_name }}"
+            -var="log_bucket_name=${{ secrets.TF_VAR_log_bucket_name }}" \
+            -var="app_port=$APP_PORT" \
+            -var="github_repo_type=$REPO_TYPE"
 
       - name: Terraform Apply
         run: |
+          # Determine stage-specific values
+          STAGE_LOWER=$(echo "${{ steps.stage.outputs.stage }}" | tr '[:upper:]' '[:lower:]')
+          
+          # Get stage-specific config values
+          source ../../scripts/${STAGE_LOWER}_config
+          
           terraform apply -auto-approve \
             -var="region=${{ env.AWS_REGION }}" \
-            -var="stage=${{ steps.stage.outputs.stage }}" \
-            -var="instance_type=t3.micro" \
+            -var="stage=$STAGE_LOWER" \
+            -var="instance_type=$INSTANCE_TYPE" \
             -var="key_name=${{ secrets.TF_VAR_key_name }}" \
-            -var="log_bucket_name=${{ secrets.TF_VAR_log_bucket_name }}"
+            -var="log_bucket_name=${{ secrets.TF_VAR_log_bucket_name }}" \
+            -var="app_port=$APP_PORT" \
+            -var="github_repo_type=$REPO_TYPE"
 
       - name: Collect Outputs
         id: outputs_step
@@ -84,6 +107,7 @@ jobs:
     needs: provision
     env:
       PUBLIC_IP: ${{ needs.provision.outputs.public_ip }}
+      STAGE: ${{ needs.provision.outputs.stage }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -97,6 +121,7 @@ jobs:
             TAG="${{ github.ref_name }}"
             SUFFIX="${TAG#deploy-}"
             if [ "$SUFFIX" = "dev" ] || [ "$SUFFIX" = "Dev" ]; then STAGE="Dev"; fi
+            if [ "$SUFFIX" = "qa" ] || [ "$SUFFIX" = "QA" ]; then STAGE="QA"; fi
             if [ "$SUFFIX" = "prod" ] || [ "$SUFFIX" = "Prod" ]; then STAGE="Prod"; fi
           else
             STAGE="Dev"
@@ -113,12 +138,14 @@ jobs:
       - name: Upload deploy artifacts (script, configs, .env)
         run: |
           # Prepare stage-specific config filename expected by your script
-          # Your script expects ./${STAGE,,}_config next to it
           STAGE_LOWER=$(echo "${{ steps.stage.outputs.stage }}" | tr '[:upper:]' '[:lower:]')
-          # Assume you keep stage configs under scripts/ as Dev_config / Prod_config
+          
+          # Copy stage-specific configs
           cp scripts/${{ steps.stage.outputs.stage }}_config /tmp/${STAGE_LOWER}_config
-          # .env for Assignment 2 parts (LOG_BUCKET_NAME, REGION, AWS_ACCOUNT_ID, INSTANCE_ID placeholder)
-          cp scripts/.env.example /tmp/.env
+          cp scripts/${STAGE_LOWER}.json /tmp/app-config.json
+          
+          # Copy .env template for Assignment 2 parts
+          cp scripts/env.template /tmp/.env
 
           scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no \
             scripts/deploy.sh ubuntu@$PUBLIC_IP:/home/ubuntu/deploy.sh
@@ -127,39 +154,51 @@ jobs:
             /tmp/${STAGE_LOWER}_config ubuntu@$PUBLIC_IP:/home/ubuntu/${STAGE_LOWER}_config
 
           scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no \
+            /tmp/app-config.json ubuntu@$PUBLIC_IP:/home/ubuntu/app-config.json
+
+          scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no \
             /tmp/.env ubuntu@$PUBLIC_IP:/home/ubuntu/.env
 
       - name: Run deploy.sh remotely
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@$PUBLIC_IP \
-            "chmod +x /home/ubuntu/deploy.sh && cd /home/ubuntu && sudo ./deploy.sh ${{ steps.stage.outputs.stage }}"
+            "export GITHUB_TOKEN='$GITHUB_TOKEN' && chmod +x /home/ubuntu/deploy.sh && cd /home/ubuntu && sudo -E ./deploy.sh ${{ steps.stage.outputs.stage }}"
 
   health_check:
     runs-on: ubuntu-latest
     needs: [provision, deploy]
     env:
       PUBLIC_IP: ${{ needs.provision.outputs.public_ip }}
+      STAGE: ${{ needs.provision.outputs.stage }}
     steps:
-      - name: Poll /hello endpoint
+      - name: Poll application endpoint
         run: |
           set -e
-          URL="http://$PUBLIC_IP/hello"
-          echo "Polling $URL for up to 2 minutes..."
-          for i in {1..24}; do
+          STAGE_LOWER=$(echo "$STAGE" | tr '[:upper:]' '[:lower:]')
+          
+          # Get app port from stage config
+          source scripts/${STAGE_LOWER}_config
+          
+          URL="http://$PUBLIC_IP:$APP_PORT/hello"
+          echo "Polling $URL for stage $STAGE (port $APP_PORT) for up to 3 minutes..."
+          
+          for i in {1..36}; do
             if curl -s --max-time 5 "$URL" | grep -q "Hello from Spring MVC!"; then
-              echo "✅ App is healthy"
+              echo "✅ App is healthy on port $APP_PORT for stage $STAGE"
               exit 0
             fi
             sleep 5
           done
-          echo "❌ Health check failed"
+          echo "❌ Health check failed for stage $STAGE on port $APP_PORT"
           exit 1
 
       - name: If failed, fetch remote logs (best-effort)
         if: failure()
         run: |
           mkdir -p logs
-          echo "Attempting to SSH and fetch app.log"
+          echo "Attempting to SSH and fetch app.log for stage $STAGE"
           set +e
           ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@$PUBLIC_IP "sudo tail -n 200 /home/ubuntu/app.log" || true
-          echo "You can also check S3 logs in bucket: ${{ secrets.TF_VAR_log_bucket_name }}"
+          echo "You can also check S3 logs in bucket: ${{ secrets.TF_VAR_log_bucket_name }}/logs/$STAGE_LOWER/"

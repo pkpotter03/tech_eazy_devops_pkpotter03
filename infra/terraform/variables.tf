@@ -5,8 +5,12 @@ variable "region" {
 }
 
 variable "stage" {
-  description = "Stage name (Dev/Prod)"
+  description = "Stage name (dev/qa/prod)"
   type        = string
+  validation {
+    condition     = contains(["dev", "qa", "prod"], lower(var.stage))
+    error_message = "Stage must be one of: dev, qa, prod."
+  }
 }
 
 variable "instance_type" {
@@ -26,9 +30,26 @@ variable "log_bucket_name" {
 }
 
 variable "app_port" {
-  description = "App port (your Spring app maps to 80 via the script)"
+  description = "Application port"
   type        = number
-  default     = 80
+  default     = 8080
+}
+
+variable "github_token" {
+  description = "GitHub Personal Access Token for private repos"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "github_repo_type" {
+  description = "GitHub repository type (public/private)"
+  type        = string
+  default     = "public"
+  validation {
+    condition     = contains(["public", "private"], var.github_repo_type)
+    error_message = "GitHub repo type must be either 'public' or 'private'."
+  }
 }
 
 variable "tags" {

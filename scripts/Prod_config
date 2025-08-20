@@ -1,0 +1,11 @@
+# Production Stage Configuration
+STAGE="prod"
+INSTANCE_TYPE="t3.medium"
+JAVA_VERSION="21"
+MAVEN_VERSION="3.9.11"
+REPO_URL="https://github.com/Trainings-TechEazy/private-prod-repo"
+REPO_TYPE="private"  # Private repo for production stage
+APP_PORT=8080
+SHUTDOWN_AFTER_MINUTES=0  # No auto-shutdown in production
+LOG_LEVEL="WARN"
+ENVIRONMENT="production"

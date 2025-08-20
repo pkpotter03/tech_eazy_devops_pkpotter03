@@ -1,0 +1,27 @@
+{
+  "application": {
+    "name": "spring-boot-app",
+    "version": "1.0.0",
+    "stage": "qa"
+  },
+  "server": {
+    "port": 8080,
+    "context-path": "/"
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "logs/app.log",
+    "max-size": "50MB",
+    "max-files": "10"
+  },
+  "database": {
+    "url": "jdbc:h2:file:./qadb",
+    "username": "qa_user",
+    "password": "qa_pass"
+  },
+  "features": {
+    "debug": false,
+    "metrics": true,
+    "health-check": true
+  }
+} 

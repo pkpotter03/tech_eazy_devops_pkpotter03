@@ -1,5 +1,5 @@
 locals {
-  name  = "assignment3-${lower(var.stage)}"
+  name  = "assignment4-${lower(var.stage)}"
   tags  = merge(var.tags, { Stage = var.stage, Project = "DevOps-Assignment-3" })
 }
 
@@ -30,8 +30,8 @@ resource "aws_security_group" "app_sg" {
 
   ingress {
     description = "HTTP"
-    from_port   = 80
-    to_port     = 80
+    from_port   = var.app_port
+    to_port     = var.app_port
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -176,11 +176,21 @@ resource "aws_instance" "app" {
   vpc_security_group_ids = [aws_security_group.app_sg.id]
   iam_instance_profile   = aws_iam_instance_profile.write_only_profile.name
 
-  # Minimal user_data (we will SSH + run your deploy.sh from GH Action)
+  # Enhanced user_data with stage-specific configuration
   user_data = <<-EOF
               #!/bin/bash
               set -e
-              echo "Cloud-init: $(date)" | tee /var/log/cloud-init-hello.log
+              echo "Cloud-init started for stage: ${var.stage} at $(date)" | tee /var/log/cloud-init-${var.stage}.log
+              
+              # Create stage-specific directories
+              mkdir -p /opt/app/config
+              mkdir -p /opt/app/logs
+              
+              # Set stage environment variable
+              echo "STAGE=${var.stage}" >> /etc/environment
+              echo "APP_PORT=${var.app_port}" >> /etc/environment
+              
+              echo "Cloud-init completed for stage: ${var.stage} at $(date)" | tee -a /var/log/cloud-init-${var.stage}.log
               EOF
 
   tags = merge(local.tags, {

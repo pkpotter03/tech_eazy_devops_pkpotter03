@@ -1,30 +1,163 @@
-name: Terraform Destroy
+name: Multi-Stage Terraform Destroy
 
 on:
-  workflow_dispatch:   # Manual trigger only
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Stage to destroy (Dev/QA/Prod)"
+        required: true
+        default: "Dev"
+        type: choice
+        options:
+          - Dev
+          - QA
+          - Prod
+      destroy_all:
+        description: "Destroy all stages (overrides stage selection)"
+        required: false
+        default: false
+        type: boolean
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
 
 jobs:
   destroy:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Terraform Init
         run: terraform init
 
-      - name: Terraform Destroy
-        run: terraform destroy -auto-approve
-        env:
-          TF_VAR_key_name: ${{ secrets.TF_VAR_key_name }}
-          TF_VAR_log_bucket_name: ${{ secrets.TF_VAR_log_bucket_name }}
+      - name: Destroy Single Stage
+        if: ${{ !inputs.destroy_all }}
+        run: |
+          # Determine stage to destroy
+          STAGE="${{ github.event.inputs.stage }}"
+          STAGE_LOWER=$(echo "$STAGE" | tr '[:upper:]' '[:lower:]')
+          
+          echo "🗑️ Destroying resources for stage: $STAGE ($STAGE_LOWER)"
+          
+          # Get stage-specific config values
+          source ../../scripts/${STAGE_LOWER}_config
+          
+          # Destroy with stage-specific variables
+          terraform destroy -auto-approve \
+            -var="region=${{ env.AWS_REGION }}" \
+            -var="stage=$STAGE_LOWER" \
+            -var="instance_type=$INSTANCE_TYPE" \
+            -var="key_name=${{ secrets.TF_VAR_key_name }}" \
+            -var="log_bucket_name=${{ secrets.TF_VAR_log_bucket_name }}" \
+            -var="app_port=$APP_PORT" \
+            -var="github_repo_type=$REPO_TYPE"
+          
+          echo "✅ Successfully destroyed resources for stage: $STAGE"
+
+      - name: Destroy All Stages
+        if: ${{ inputs.destroy_all }}
+        run: |
+          echo "🗑️ Destroying ALL stages (dev, qa, prod)"
+          
+          # Destroy each stage sequentially
+          for STAGE in "dev" "qa" "prod"; do
+            echo "🔄 Destroying stage: $STAGE"
+            
+            # Check if stage config exists
+            if [[ -f "../../scripts/${STAGE}_config" ]]; then
+              # Get stage-specific config values
+              source ../../scripts/${STAGE}_config
+              
+              # Destroy with stage-specific variables
+              terraform destroy -auto-approve \
+                -var="region=${{ env.AWS_REGION }}" \
+                -var="stage=$STAGE" \
+                -var="instance_type=$INSTANCE_TYPE" \
+                -var="key_name=${{ secrets.TF_VAR_key_name }}" \
+                -var="log_bucket_name=${{ secrets.TF_VAR_log_bucket_name }}" \
+                -var="app_port=$APP_PORT" \
+                -var="github_repo_type=$REPO_TYPE"
+              
+              echo "✅ Successfully destroyed stage: $STAGE"
+            else
+              echo "⚠️ No config found for stage: $STAGE, skipping..."
+            fi
+          done
+          
+          echo "🎉 All stages destroyed successfully!"
+
+      - name: Cleanup IAM Resources (if destroy failed)
+        if: failure()
+        run: |
+          echo "🧹 Cleaning up IAM resources manually..."
+          
+          # Get the stage that was being destroyed
+          STAGE="${{ github.event.inputs.stage }}"
+          STAGE_LOWER=$(echo "$STAGE" | tr '[:upper:]' '[:lower:]')
+          
+          # Clean up IAM resources that might be left behind
+          echo "Cleaning up IAM roles and policies for stage: $STAGE_LOWER"
+          
+          # List and delete IAM roles
+          aws iam list-roles --query "Roles[?contains(RoleName, 'assignment3-$STAGE_LOWER') || contains(RoleName, 'S3WriteOnly') || contains(RoleName, 'S3ReadOnly')].RoleName" --output text | tr '\t' '\n' | while read role; do
+            if [[ -n "$role" ]]; then
+              echo "Deleting IAM role: $role"
+              # Detach policies first
+              aws iam list-attached-role-policies --role-name "$role" --query "AttachedPolicies[].PolicyArn" --output text | tr '\t' '\n' | while read policy; do
+                if [[ -n "$policy" ]]; then
+                  echo "Detaching policy: $policy from role: $role"
+                  aws iam detach-role-policy --role-name "$role" --policy-arn "$policy" || true
+                fi
+              done
+              # Delete the role
+              aws iam delete-role --role-name "$role" || true
+            fi
+          done
+          
+          # List and delete IAM policies
+          aws iam list-policies --query "Policies[?contains(PolicyName, 'S3WriteOnly')].PolicyArn" --output text | tr '\t' '\n' | while read policy; do
+            if [[ -n "$policy" ]]; then
+              echo "Deleting IAM policy: $policy"
+              aws iam delete-policy --policy-arn "$policy" || true
+            fi
+          done
+          
+          # List and delete instance profiles
+          aws iam list-instance-profiles --query "InstanceProfiles[?contains(InstanceProfileName, 'S3WriteOnly')].InstanceProfileName" --output text | tr '\t' '\n' | while read profile; do
+            if [[ -n "$profile" ]]; then
+              echo "Deleting instance profile: $profile"
+              aws iam delete-instance-profile --instance-profile-name "$profile" || true
+            fi
+          done
+          
+          echo "🧹 IAM cleanup completed"
+
+      - name: Verify Cleanup
+        run: |
+          echo "🔍 Verifying cleanup completion..."
+          
+          # Check if any resources remain
+          echo "Checking for remaining EC2 instances..."
+          aws ec2 describe-instances --filters "Name=tag:Project,Values=DevOps-Assignment-3" --query "Reservations[].Instances[?State.Name!='terminated'].[InstanceId,Tags[?Key=='Name'].Value|[0],State.Name]" --output table || echo "No EC2 instances found"
+          
+          echo "Checking for remaining security groups..."
+          aws ec2 describe-security-groups --filters "Name=group-name,Values=assignment3-*-sg" --query "SecurityGroups[].GroupName" --output table || echo "No security groups found"
+          
+          echo "Checking for remaining S3 buckets..."
+          aws s3 ls | grep "${{ secrets.TF_VAR_log_bucket_name }}" || echo "S3 bucket not found"
+          
+          echo "✅ Cleanup verification completed"
