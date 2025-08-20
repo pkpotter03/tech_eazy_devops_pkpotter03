@@ -63,6 +63,48 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
+      - name: Import existing resources (idempotent)
+        run: |
+          set -e
+          STAGE="${{ steps.stage.outputs.stage }}"
+          STAGE_LOWER=$(echo "$STAGE" | tr '[:upper:]' '[:lower:]')
+          LOG_BUCKET_NAME="${{ secrets.TF_VAR_log_bucket_name }}"
+
+          # Default VPC
+          VPC_ID=$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true --query "Vpcs[0].VpcId" --output text)
+
+          # Security Group (assignment4-<stage>-sg)
+          SG_ID=$(aws ec2 describe-security-groups \
+            --filters Name=group-name,Values=assignment4-$STAGE_LOWER-sg Name=vpc-id,Values=$VPC_ID \
+            --query "SecurityGroups[0].GroupId" --output text 2>/dev/null || true)
+          if [ -n "$SG_ID" ] && [ "$SG_ID" != "None" ]; then
+            echo "Importing SG $SG_ID" && terraform import -input=false aws_security_group.app_sg "$SG_ID" || true
+          fi
+
+          # S3 Bucket
+          if aws s3api head-bucket --bucket "$LOG_BUCKET_NAME" 2>/dev/null; then
+            echo "Importing bucket $LOG_BUCKET_NAME" && terraform import -input=false aws_s3_bucket.logs "$LOG_BUCKET_NAME" || true
+          fi
+
+          # IAM Policy (S3WriteOnlyAccess-<stage>)
+          POLICY_ARN=$(aws iam list-policies --scope Local --query "Policies[?PolicyName=='S3WriteOnlyAccess-$STAGE_LOWER'].Arn" --output text 2>/dev/null || true)
+          if [ -n "$POLICY_ARN" ] && [ "$POLICY_ARN" != "None" ]; then
+            echo "Importing policy $POLICY_ARN" && terraform import -input=false aws_iam_policy.s3_write_only "$POLICY_ARN" || true
+          fi
+
+          # IAM Roles
+          if aws iam get-role --role-name "S3ReadOnlyRole-$STAGE_LOWER" >/dev/null 2>&1; then
+            echo "Importing role S3ReadOnlyRole-$STAGE_LOWER" && terraform import -input=false aws_iam_role.s3_read_only_role "S3ReadOnlyRole-$STAGE_LOWER" || true
+          fi
+          if aws iam get-role --role-name "S3WriteOnlyRole-$STAGE_LOWER" >/dev/null 2>&1; then
+            echo "Importing role S3WriteOnlyRole-$STAGE_LOWER" && terraform import -input=false aws_iam_role.s3_write_only_role "S3WriteOnlyRole-$STAGE_LOWER" || true
+          fi
+
+          # Instance Profile
+          if aws iam get-instance-profile --instance-profile-name "S3WriteOnlyInstanceProfile-$STAGE_LOWER" >/dev/null 2>&1; then
+            echo "Importing instance profile S3WriteOnlyInstanceProfile-$STAGE_LOWER" && terraform import -input=false aws_iam_instance_profile.write_only_profile "S3WriteOnlyInstanceProfile-$STAGE_LOWER" || true
+          fi
+
       - name: Terraform Plan
         run: |
           # Determine stage-specific values
