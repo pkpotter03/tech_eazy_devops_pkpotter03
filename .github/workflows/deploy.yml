@@ -2,7 +2,7 @@ name: Multi-Stage Deployment (Assignment 4)
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, assignment-4 ]
     tags:
       - 'deploy-*'     # e.g., deploy-dev, deploy-qa, deploy-prod
   workflow_dispatch:
