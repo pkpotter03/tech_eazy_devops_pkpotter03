@@ -1,10 +1,6 @@
 name: Multi-Stage Terraform Destroy
 
-on:
-  push:
-    branches: [ main, assignment-4 ]
-    tags:
-      - 'destroy-*'     # e.g., destroy-dev, destroy-qa, destroy-prod
+on:   # e.g., destroy-dev, destroy-qa, destroy-prod
   workflow_dispatch:
     inputs:
       stage:
