@@ -52,11 +52,8 @@ resource "aws_security_group" "app_sg" {
 
   tags = local.tags
 
-  # Add lifecycle policy to prevent accidental deletion
-  lifecycle {
-    prevent_destroy = var.stage == "prod" ? true : false
-  }
 }
+
 
 data "aws_vpc" "default" {
   default = true
@@ -216,10 +213,6 @@ resource "aws_instance" "app" {
     Name = "${local.name}-ec2"
   })
 
-  # Add lifecycle policy to prevent accidental deletion in production
-  lifecycle {
-    prevent_destroy = var.stage == "prod" ? true : false
-  }
 }
 
 
